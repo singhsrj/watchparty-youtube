@@ -14,13 +14,11 @@ const PLAYER_ID = 'youtube-player-container';
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => {
   const { emitPlay, emitPause, emitSeek } = useSocket();
   const prevVideoId = useRef<string>('');
-  const prevIsPlaying = useRef<boolean>(false);
-  const prevTime = useRef<number>(0);
   const [duration, setDuration] = useState(0);
   const [sliderTime, setSliderTime] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  const { syncPlay, syncPause, syncSeek, loadVideo, getCurrentTime, getDuration } = useYouTubePlayer({
+  const { syncPlay, syncPause, loadVideo, getCurrentTime, getDuration, getPlayerState } = useYouTubePlayer({
     containerId: PLAYER_ID,
     videoId: videoState.videoId,
     onReady: () => {
@@ -40,28 +38,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     if (!videoState.videoId) return;
 
     const videoChanged = videoState.videoId !== prevVideoId.current;
-    const playChanged = videoState.isPlaying !== prevIsPlaying.current;
-    const seeked = Math.abs(videoState.currentTime - prevTime.current) > 2;
 
     if (videoChanged) {
       loadVideo(videoState.videoId);
       prevVideoId.current = videoState.videoId;
-      prevIsPlaying.current = false;
-      prevTime.current = 0;
       return;
     }
 
-    if (videoState.isPlaying && (!prevIsPlaying.current || seeked)) {
-      syncPlay(videoState.currentTime);
-    } else if (!videoState.isPlaying && (prevIsPlaying.current || seeked)) {
-      syncPause(videoState.currentTime);
-    } else if (seeked) {
-      syncSeek(videoState.currentTime);
+    const localState = getPlayerState();
+    const localTime = getCurrentTime();
+    const driftSeconds = Math.abs(videoState.currentTime - localTime);
+    const maxAllowedDrift = 0.45;
+
+    if (videoState.isPlaying) {
+      if (localState !== 1 || driftSeconds > maxAllowedDrift) {
+        syncPlay(videoState.currentTime);
+      }
+    } else {
+      if (localState !== 2 || driftSeconds > maxAllowedDrift) {
+        syncPause(videoState.currentTime);
+      }
     }
 
-    prevIsPlaying.current = videoState.isPlaying;
-    prevTime.current = videoState.currentTime;
-  }, [videoState]);
+    if (!isDragging) {
+      setSliderTime(videoState.currentTime);
+    }
+  }, [
+    videoState.videoId,
+    videoState.currentTime,
+    videoState.isPlaying,
+    loadVideo,
+    syncPlay,
+    syncPause,
+    getCurrentTime,
+    getPlayerState,
+    isDragging,
+  ]);
 
   const handlePlay = () => {
     if (!canControl) return;

@@ -24,6 +24,6 @@ class VideoState:
     def to_dict(self) -> dict:
         return {
             "videoId": self.video_id,
-            "currentTime": self.current_time,
+            "currentTime": self.get_estimated_time(),
             "isPlaying": self.is_playing,
         }

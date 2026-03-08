@@ -34,12 +34,18 @@ const RoomPage: React.FC = () => {
     }
   }, [connected, roomId]);
 
-  // Request sync on join
+  // Request sync on join and periodically while in room to reduce drift.
   useEffect(() => {
-    if (room && me) {
-      setTimeout(() => requestSync(), 500);
-    }
-  }, [room?.roomId]);
+    if (!room || !me) return;
+
+    const initial = window.setTimeout(() => requestSync(), 500);
+    const interval = window.setInterval(() => requestSync(), 3000);
+
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+    };
+  }, [room?.roomId, me?.socketId, requestSync]);
 
   useEffect(() => {
     if (kickedReason) {
