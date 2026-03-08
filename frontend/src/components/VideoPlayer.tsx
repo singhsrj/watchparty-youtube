@@ -115,7 +115,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
   };
 
   return (
-    <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden group">
+    // Size is inherited from parent wrapper in RoomPage (h-[..vh], min-h, max-h).
+    <div className="relative w-full h-full bg-black rounded-xl overflow-hidden group">
       {!videoState.videoId && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface text-slate-500 gap-3">
           <div className="text-6xl opacity-20">▶</div>
@@ -124,6 +125,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
         </div>
       )}
 
+      {/* Keep full size so iframe always fills whatever container height/width you set in RoomPage. */}
       <div id={PLAYER_ID} className="w-full h-full" />
 
       {/* Custom overlay controls */}

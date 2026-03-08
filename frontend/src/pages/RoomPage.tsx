@@ -8,7 +8,7 @@ import VideoInput from '../components/VideoInput';
 import { ROLE_BG, ROLE_LABELS } from '../types';
 import {
   Copy, Check, LogOut, Users, MessageSquare, Wifi, WifiOff, Crown,
-  Play, Pause, SkipForward, AlertTriangle, Tv
+  AlertTriangle, Tv
 } from 'lucide-react';
 
 const RoomPage: React.FC = () => {
@@ -20,7 +20,7 @@ const RoomPage: React.FC = () => {
   const {
     connected, room, me, videoState, participants,
     chatMessages, error, kickedReason,
-    joinRoom, leaveRoom, emitPlay, emitPause, emitSeek, requestSync, clearError,
+    joinRoom, leaveRoom, requestSync, clearError,
   } = useSocket();
 
   const [copied, setCopied] = useState(false);
@@ -159,43 +159,15 @@ const RoomPage: React.FC = () => {
         {/* Video area */}
         <div className="flex-1 flex flex-col min-w-0 p-3 gap-3 overflow-hidden">
           <VideoInput canControl={canControl} />
-          <div className="h-[30vh] sm:h-[34vh] lg:h-[38vh] min-h-[180px] sm:min-h-[220px] max-h-[420px]">
-            <VideoPlayer videoState={videoState} canControl={canControl} />
+          {/*
+            Player size control:
+            - Reduce/increase these h-[..vh] values to make the embedded video smaller/larger.
+            - min-h/max-h act as guard rails on tiny/large screens.
+          */}
+            <div className="w-full aspect-video max-w-5xl mx-auto bg-black">
+              <VideoPlayer videoState={videoState} canControl={canControl} />
           </div>
 
-          {/* Playback controls bar */}
-          {canControl && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-panel border border-border rounded-xl">
-              <span className="text-xs font-mono text-slate-500 mr-1">Controls</span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => emitPlay(0)}
-                  title="Play"
-                  className={`p-2 rounded-lg transition-all text-sm font-body
-                    ${videoState.isPlaying
-                      ? 'bg-accent/20 text-accent border border-accent/30'
-                      : 'bg-surface hover:bg-accent/10 text-slate-400 hover:text-accent border border-border'}`}
-                >
-                  <Play size={15} />
-                </button>
-                <button
-                  onClick={() => emitPause(0)}
-                  title="Pause"
-                  className={`p-2 rounded-lg transition-all
-                    ${!videoState.isPlaying
-                      ? 'bg-accent/20 text-accent border border-accent/30'
-                      : 'bg-surface hover:bg-accent/10 text-slate-400 hover:text-accent border border-border'}`}
-                >
-                  <Pause size={15} />
-                </button>
-              </div>
-              <div className="flex-1" />
-              <span className={`text-xs font-mono px-2 py-1 rounded-full border
-                ${videoState.isPlaying ? 'text-success border-success/30 bg-success/10' : 'text-slate-500 border-slate-600 bg-surface'}`}>
-                {videoState.isPlaying ? '● Playing' : '⏸ Paused'}
-              </span>
-            </div>
-          )}
         </div>
 
         {/* Sidebar */}
