@@ -74,16 +74,32 @@ export const useYouTubePlayer = ({
   const playWithAutoplayFallback = useCallback(() => {
     if (!playerRef.current || !readyRef.current) return;
 
+    const wasMuted = playerRef.current.isMuted?.() ?? false;
+    const previousVolume = playerRef.current.getVolume?.() ?? 100;
+
     playerRef.current.playVideo();
 
     // Some browsers block unmuted autoplay for non-interacting viewers.
     // If playback did not start, retry muted so host resume still syncs.
+    // Then restore previous audio preference to keep volume independent
+    // from pause/play events.
     window.setTimeout(() => {
       if (!playerRef.current || !readyRef.current) return;
       const state = playerRef.current.getPlayerState?.();
       if (state !== 1) {
         playerRef.current.mute?.();
         playerRef.current.playVideo?.();
+
+        window.setTimeout(() => {
+          if (!playerRef.current || !readyRef.current) return;
+          const nowPlaying = playerRef.current.getPlayerState?.() === 1;
+          if (!nowPlaying) return;
+
+          if (!wasMuted) {
+            playerRef.current.unMute?.();
+            playerRef.current.setVolume?.(previousVolume);
+          }
+        }, 250);
       }
     }, 200);
   }, []);
@@ -192,6 +208,43 @@ export const useYouTubePlayer = ({
     return playerRef.current.getDuration?.() ?? 0;
   }, []);
 
+  const getVolume = useCallback((): number => {
+    if (!playerRef.current || !readyRef.current) return 100;
+    return playerRef.current.getVolume?.() ?? 100;
+  }, []);
+
+  const isMuted = useCallback((): boolean => {
+    if (!playerRef.current || !readyRef.current) return false;
+    return playerRef.current.isMuted?.() ?? false;
+  }, []);
+
+  const setVolume = useCallback((volume: number) => {
+    if (!playerRef.current || !readyRef.current) return;
+    const clamped = Math.max(0, Math.min(100, Math.floor(volume)));
+    if (clamped === 0) {
+      playerRef.current.mute?.();
+      playerRef.current.setVolume?.(0);
+      return;
+    }
+
+    playerRef.current.unMute?.();
+    playerRef.current.setVolume?.(clamped);
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    if (!playerRef.current || !readyRef.current) return;
+    if (playerRef.current.isMuted?.()) {
+      playerRef.current.unMute?.();
+      const currentVolume = playerRef.current.getVolume?.() ?? 0;
+      if (currentVolume <= 0) {
+        playerRef.current.setVolume?.(50);
+      }
+      return;
+    }
+
+    playerRef.current.mute?.();
+  }, []);
+
   return {
     syncPlay,
     syncPause,
@@ -200,6 +253,10 @@ export const useYouTubePlayer = ({
     getCurrentTime,
     getPlayerState,
     getDuration,
+    getVolume,
+    isMuted,
+    setVolume,
+    toggleMute,
     playerRef,
     readyRef,
   };

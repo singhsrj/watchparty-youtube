@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer';
 import { useSocket } from '../context/SocketContext';
 import { VideoState } from '../types';
-import { Play, Pause } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
 
 interface VideoPlayerProps {
   videoState: VideoState;
@@ -17,8 +17,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
   const [duration, setDuration] = useState(0);
   const [sliderTime, setSliderTime] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [volume, setVolumeState] = useState(100);
+  const [muted, setMuted] = useState(false);
 
-  const { syncPlay, syncPause, loadVideo, getCurrentTime, getDuration, getPlayerState } = useYouTubePlayer({
+  const {
+    syncPlay,
+    syncPause,
+    loadVideo,
+    getCurrentTime,
+    getDuration,
+    getPlayerState,
+    getVolume,
+    isMuted,
+    setVolume,
+    toggleMute,
+  } = useYouTubePlayer({
     containerId: PLAYER_ID,
     videoId: videoState.videoId,
     onReady: () => {
@@ -99,6 +112,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     if (!videoState.videoId) {
       setDuration(0);
       setSliderTime(0);
+      setMuted(false);
+      setVolumeState(100);
       return;
     }
 
@@ -111,12 +126,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
       if (!isDragging) {
         setSliderTime(getCurrentTime());
       }
+
+      setMuted(isMuted());
+      setVolumeState(getVolume());
     };
 
     tick();
     const id = window.setInterval(tick, 300);
     return () => window.clearInterval(id);
-  }, [videoState.videoId, isDragging, getCurrentTime, getDuration]);
+  }, [videoState.videoId, isDragging, getCurrentTime, getDuration, getVolume, isMuted]);
 
   const formatTime = (seconds: number) => {
     const safe = Math.max(0, Math.floor(seconds));
@@ -134,6 +152,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     const nextTime = Math.max(0, Math.min(sliderTime, duration || sliderTime));
     emitSeek(nextTime);
     setIsDragging(false);
+  };
+
+  const handleVolumeChange = (nextVolume: number) => {
+    setVolumeState(nextVolume);
+    setVolume(nextVolume);
+    setMuted(nextVolume === 0);
+  };
+
+  const handleToggleMute = () => {
+    toggleMute();
+    const nextMuted = !muted;
+    setMuted(nextMuted);
+    if (!nextMuted && volume === 0) {
+      setVolume(50);
+      setVolumeState(50);
+    }
   };
 
   return (
@@ -161,46 +195,76 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
       )}
 
       {/* Custom overlay controls */}
-      {canControl && videoState.videoId && (
+      {videoState.videoId && (
         <div className="absolute bottom-0 left-0 right-0 z-20 p-4 bg-gradient-to-t from-black/80 to-transparent 
                         opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col gap-3">
-          <div className="flex items-center gap-3">
-            {videoState.isPlaying ? (
-              <button onClick={handlePause}
-                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-white">
-                <Pause size={18} />
-              </button>
-            ) : (
-              <button onClick={handlePlay}
-                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-white">
-                <Play size={18} />
-              </button>
-            )}
-            <span className="font-mono text-xs text-white/80 min-w-[84px]">
-              {formatTime(sliderTime)} / {formatTime(duration || videoState.currentTime)}
-            </span>
-          </div>
-
           <input
             type="range"
             min={0}
             max={Math.max(duration, sliderTime, 1)}
             step={0.1}
             value={Math.min(sliderTime, Math.max(duration, sliderTime, 1))}
-            onMouseDown={() => setIsDragging(true)}
-            onTouchStart={() => setIsDragging(true)}
+            onMouseDown={() => canControl && setIsDragging(true)}
+            onTouchStart={() => canControl && setIsDragging(true)}
             onChange={(e) => handleSeekChange(Number(e.target.value))}
             onMouseUp={commitSeek}
             onTouchEnd={commitSeek}
-            className="w-full h-1.5 accent-white cursor-pointer"
+            disabled={!canControl}
+            className={`w-full h-1.5 accent-white ${canControl ? 'cursor-pointer' : 'cursor-default opacity-80'}`}
             aria-label="Seek video"
           />
+
+          <div className="w-fit max-w-full rounded-full bg-black/55 px-3 py-2 flex items-center gap-3">
+            {canControl && (
+              videoState.isPlaying ? (
+                <button
+                  onClick={handlePause}
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors text-white"
+                  aria-label="Pause"
+                >
+                  <Pause size={17} />
+                </button>
+              ) : (
+                <button
+                  onClick={handlePlay}
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors text-white"
+                  aria-label="Play"
+                >
+                  <Play size={17} />
+                </button>
+              )
+            )}
+
+            <button
+              type="button"
+              onClick={handleToggleMute}
+              className="text-white/90 hover:text-white"
+              aria-label={muted ? 'Unmute' : 'Mute'}
+            >
+              {muted || volume === 0 ? <VolumeX size={17} /> : <Volume2 size={17} />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={muted ? 0 : volume}
+              onChange={(e) => handleVolumeChange(Number(e.target.value))}
+              className="w-20 accent-white"
+              aria-label="Volume"
+              title="Volume (local only)"
+            />
+
+            <span className="font-mono text-xs text-white/90 min-w-[96px]">
+              {formatTime(sliderTime)} / {formatTime(duration || videoState.currentTime)}
+            </span>
+          </div>
         </div>
       )}
 
       {/* Non-controller overlay to block direct YT controls */}
       {!canControl && videoState.videoId && (
-        <div className="absolute inset-0 cursor-not-allowed" title="Only Host/Moderator can control playback" />
+        <div className="absolute inset-0 z-10 cursor-not-allowed" title="Only Host/Moderator can control playback" />
       )}
     </div>
   );
