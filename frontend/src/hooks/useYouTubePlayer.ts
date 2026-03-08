@@ -254,6 +254,24 @@ export const useYouTubePlayer = ({
     playerRef.current.mute?.();
   }, []);
 
+  const setCaptionsEnabled = useCallback((enabled: boolean, languageCode = 'en') => {
+    if (!playerRef.current || !readyRef.current) return;
+
+    try {
+      if (enabled) {
+        playerRef.current.loadModule?.('captions');
+        playerRef.current.setOption?.('captions', 'track', { languageCode });
+        return;
+      }
+
+      // Clear caption track and unload module when disabling.
+      playerRef.current.setOption?.('captions', 'track', {});
+      playerRef.current.unloadModule?.('captions');
+    } catch {
+      // Some videos may not expose captions controls; ignore silently.
+    }
+  }, []);
+
   return {
     syncPlay,
     syncPause,
@@ -266,6 +284,7 @@ export const useYouTubePlayer = ({
     isMuted,
     setVolume,
     toggleMute,
+    setCaptionsEnabled,
     playerRef,
     readyRef,
   };
