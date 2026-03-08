@@ -8,7 +8,7 @@ interface VideoInputProps {
 }
 
 const VideoInput: React.FC<VideoInputProps> = ({ canControl }) => {
-  const { emitChangeVideo } = useSocket();
+  const { emitChangeVideo, emitAddToQueue, queue } = useSocket();
   const [input, setInput] = useState('');
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
@@ -20,6 +20,19 @@ const VideoInput: React.FC<VideoInputProps> = ({ canControl }) => {
       return;
     }
     emitChangeVideo(videoId);
+    setInput('');
+    setStatus('success');
+    setTimeout(() => setStatus('idle'), 2000);
+  };
+
+  const handleQueue = () => {
+    const videoId = extractYouTubeId(input.trim());
+    if (!videoId) {
+      setStatus('error');
+      setTimeout(() => setStatus('idle'), 2000);
+      return;
+    }
+    emitAddToQueue(videoId);
     setInput('');
     setStatus('success');
     setTimeout(() => setStatus('idle'), 2000);
@@ -39,7 +52,11 @@ const VideoInput: React.FC<VideoInputProps> = ({ canControl }) => {
   }
 
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-col gap-2">
+      <div className="text-xs font-mono text-slate-500 px-1">
+        Up next queue: {queue.length}
+      </div>
+      <div className="flex gap-2">
       <div className="flex-1 relative">
         <Link size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
         <input
@@ -67,6 +84,13 @@ const VideoInput: React.FC<VideoInputProps> = ({ canControl }) => {
           <span className="flex items-center gap-1.5"><Check size={14} /> Done</span>
         ) : 'Load'}
       </button>
+      <button
+        onClick={handleQueue}
+        className="px-4 py-2.5 rounded-xl text-sm font-display font-semibold transition-all bg-surface border border-border text-slate-200 hover:border-accent/40 hover:text-white"
+      >
+        Queue
+      </button>
+      </div>
     </div>
   );
 };

@@ -70,6 +70,8 @@ class MessageHandler:
         self.sio.on("request_sync", self.handle_request_sync)
         self.sio.on("disconnect", self.handle_disconnect)
         self.sio.on("chat_message", self.handle_chat_message)
+        self.sio.on("add_to_queue", self.handle_add_to_queue)
+        self.sio.on("video_ended", self.handle_video_ended)
 
     # ─── Room Lifecycle ───────────────────────────────────────────────────────
 
@@ -362,6 +364,37 @@ class MessageHandler:
             "message": message,
             "timestamp": __import__("time").time(),
         }, room=room.room_id)
+
+    async def handle_add_to_queue(self, sid: str, data: dict):
+        room = self.registry.get_room_by_socket(sid)
+        if not room:
+            return
+
+        try:
+            video_id = (data or {}).get("videoId", "")
+            if not video_id:
+                await self._emit_error(sid, "videoId is required")
+                return
+
+            queue = room.add_to_queue(sid, video_id)
+            await self.sio.emit("queue_updated", {"queue": queue}, room=room.room_id)
+        except PermissionError as e:
+            await self._emit_error(sid, str(e))
+
+    async def handle_video_ended(self, sid: str, data: dict = None):
+        room = self.registry.get_room_by_socket(sid)
+        if not room:
+            return
+
+        try:
+            next_state = room.play_next_from_queue(sid)
+            await self.sio.emit("queue_updated", {"queue": room.queue}, room=room.room_id)
+
+            if next_state is not None:
+                self._persist_room_state(room)
+                await self.sio.emit("sync_state", next_state.to_dict(), room=room.room_id)
+        except PermissionError as e:
+            await self._emit_error(sid, str(e))
 
     # ─── Helpers ─────────────────────────────────────────────────────────────
 

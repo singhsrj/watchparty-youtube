@@ -19,6 +19,7 @@ export interface RoomInfo {
   name: string;
   participants: Participant[];
   videoState: VideoState;
+  queue: string[];
   createdAt: number;
 }
 

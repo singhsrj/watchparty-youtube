@@ -30,6 +30,7 @@ class Room:
 
         self._participants: Dict[str, Participant] = {}
         self.video_state = VideoState()
+        self.queue: List[str] = []
 
         # Add the host
         host = Participant(socket_id=host_socket_id, username=host_username, role=Role.HOST)
@@ -166,6 +167,21 @@ class Room:
         self.video_state.last_updated = time.time()
         return self.video_state
 
+    def add_to_queue(self, requester_socket_id: str, video_id: str) -> List[str]:
+        self._assert_playback_permission(requester_socket_id)
+        if not video_id:
+            return self.queue
+        self.queue.append(video_id)
+        return self.queue
+
+    def play_next_from_queue(self, requester_socket_id: str) -> Optional[VideoState]:
+        self._assert_playback_permission(requester_socket_id)
+        if not self.queue:
+            return None
+
+        next_video_id = self.queue.pop(0)
+        return self.change_video(requester_socket_id, next_video_id)
+
     # ─── Serialization ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
@@ -175,6 +191,7 @@ class Room:
             "name": self.name,
             "participants": self.get_participants_dict(),
             "videoState": self.video_state.to_dict(),
+            "queue": self.queue,
             "createdAt": self.created_at,
         }
 

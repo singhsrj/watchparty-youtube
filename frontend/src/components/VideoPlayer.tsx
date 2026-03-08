@@ -26,7 +26,7 @@ const getInitialCaptionsEnabled = (): boolean => {
 };
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => {
-  const { emitPlay, emitPause, emitSeek } = useSocket();
+  const { emitPlay, emitPause, emitSeek, emitVideoEnded } = useSocket();
   const containerRef = useRef<HTMLDivElement>(null);
   const prevVideoId = useRef<string>('');
   const initialVolumeRef = useRef<number>(getInitialLocalVolume());
@@ -37,6 +37,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
   const [volume, setVolumeState] = useState(initialVolumeRef.current);
   const [muted, setMuted] = useState(false);
   const [playerState, setPlayerState] = useState(-1);
+  const endHandledRef = useRef(false);
   const [captionsEnabled, setCaptionsEnabledState] = useState(getInitialCaptionsEnabled);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -85,6 +86,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     const localState = getPlayerState();
     setPlayerState(localState);
 
+    if (localState === 0 && canControl && !endHandledRef.current) {
+      endHandledRef.current = true;
+      emitVideoEnded();
+    } else if (localState !== 0) {
+      endHandledRef.current = false;
+    }
+
     // Allow native YouTube end-screen cards to be fully interactive.
     if (localState === 0) {
       return;
@@ -118,6 +126,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     setCaptionsEnabled,
     getCurrentTime,
     getPlayerState,
+    emitVideoEnded,
+    canControl,
     isDragging,
   ]);
 

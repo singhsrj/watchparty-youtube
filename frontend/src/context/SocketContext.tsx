@@ -11,6 +11,7 @@ interface SocketContextValue {
   me: Participant | null;
   videoState: VideoState;
   participants: Participant[];
+  queue: string[];
   chatMessages: ChatMessage[];
   error: string | null;
   kickedReason: string | null;
@@ -20,6 +21,8 @@ interface SocketContextValue {
   emitPause: (currentTime: number) => void;
   emitSeek: (currentTime: number) => void;
   emitChangeVideo: (videoId: string) => void;
+  emitAddToQueue: (videoId: string) => void;
+  emitVideoEnded: () => void;
   emitAssignRole: (userId: string, role: string) => void;
   emitRemoveParticipant: (userId: string) => void;
   emitTransferHost: (userId: string) => void;
@@ -37,6 +40,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [me, setMe] = useState<Participant | null>(null);
   const [videoState, setVideoState] = useState<VideoState>({ videoId: '', currentTime: 0, isPlaying: false });
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [queue, setQueue] = useState<string[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [kickedReason, setKickedReason] = useState<string | null>(null);
@@ -52,7 +56,12 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setRoom(room);
       setMe(you);
       setParticipants(room.participants);
+      setQueue(room.queue || []);
       setVideoState(room.videoState);
+    });
+
+    socket.on('queue_updated', ({ queue }: { queue: string[] }) => {
+      setQueue(queue || []);
     });
 
     socket.on('user_joined', ({ participants }: { participants: Participant[] }) => {
@@ -119,6 +128,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setRoom(null);
     setMe(null);
     setParticipants([]);
+    setQueue([]);
     setChatMessages([]);
   };
 
@@ -126,6 +136,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const emitPause = (currentTime: number) => socketRef.current?.emit('pause', { currentTime });
   const emitSeek = (currentTime: number) => socketRef.current?.emit('seek', { currentTime });
   const emitChangeVideo = (videoId: string) => socketRef.current?.emit('change_video', { videoId });
+  const emitAddToQueue = (videoId: string) => socketRef.current?.emit('add_to_queue', { videoId });
+  const emitVideoEnded = () => socketRef.current?.emit('video_ended', {});
   const emitAssignRole = (userId: string, role: string) => socketRef.current?.emit('assign_role', { userId, role });
   const emitRemoveParticipant = (userId: string) => socketRef.current?.emit('remove_participant', { userId });
   const emitTransferHost = (userId: string) => socketRef.current?.emit('transfer_host', { userId });
@@ -136,9 +148,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   return (
     <SocketContext.Provider value={{
       socket: socketRef.current, connected, room, me, videoState,
-      participants, chatMessages, error, kickedReason,
+      participants, queue, chatMessages, error, kickedReason,
       joinRoom, leaveRoom, emitPlay, emitPause, emitSeek,
-      emitChangeVideo, emitAssignRole, emitRemoveParticipant,
+      emitChangeVideo, emitAddToQueue, emitVideoEnded, emitAssignRole, emitRemoveParticipant,
       emitTransferHost, emitChatMessage, requestSync, clearError,
     }}>
       {children}
