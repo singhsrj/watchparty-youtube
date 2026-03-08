@@ -85,6 +85,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     emitPause(getCurrentTime());
   };
 
+  const handleToggleByClick = () => {
+    if (!canControl || !videoState.videoId) return;
+    const state = getPlayerState();
+    if (state === 1) {
+      emitPause(getCurrentTime());
+    } else {
+      emitPlay(getCurrentTime());
+    }
+  };
+
   useEffect(() => {
     if (!videoState.videoId) {
       setDuration(0);
@@ -140,9 +150,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
       {/* Keep full size so iframe always fills whatever container height/width you set in RoomPage. */}
       <div id={PLAYER_ID} className="w-full h-full" />
 
+      {/* Click anywhere on video to toggle play/pause (host/moderator only). */}
+      {canControl && videoState.videoId && (
+        <button
+          type="button"
+          onClick={handleToggleByClick}
+          className="absolute inset-0 z-10 cursor-pointer"
+          aria-label="Toggle playback"
+        />
+      )}
+
       {/* Custom overlay controls */}
       {canControl && videoState.videoId && (
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent 
+        <div className="absolute bottom-0 left-0 right-0 z-20 p-4 bg-gradient-to-t from-black/80 to-transparent 
                         opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col gap-3">
           <div className="flex items-center gap-3">
             {videoState.isPlaying ? (

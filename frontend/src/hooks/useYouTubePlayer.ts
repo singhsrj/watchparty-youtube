@@ -71,6 +71,23 @@ export const useYouTubePlayer = ({
   const onReadyRef = useRef<UseYouTubePlayerOptions['onReady']>();
   const onStateChangeRef = useRef<UseYouTubePlayerOptions['onStateChange']>();
 
+  const playWithAutoplayFallback = useCallback(() => {
+    if (!playerRef.current || !readyRef.current) return;
+
+    playerRef.current.playVideo();
+
+    // Some browsers block unmuted autoplay for non-interacting viewers.
+    // If playback did not start, retry muted so host resume still syncs.
+    window.setTimeout(() => {
+      if (!playerRef.current || !readyRef.current) return;
+      const state = playerRef.current.getPlayerState?.();
+      if (state !== 1) {
+        playerRef.current.mute?.();
+        playerRef.current.playVideo?.();
+      }
+    }, 200);
+  }, []);
+
   useEffect(() => {
     onReadyRef.current = onReady;
     onStateChangeRef.current = onStateChange;
@@ -133,9 +150,9 @@ export const useYouTubePlayer = ({
     if (!playerRef.current || !readyRef.current) return;
     suppressRef.current = true;
     playerRef.current.seekTo(time, true);
-    playerRef.current.playVideo();
+    playWithAutoplayFallback();
     setTimeout(() => { suppressRef.current = false; }, 500);
-  }, []);
+  }, [playWithAutoplayFallback]);
 
   const syncPause = useCallback((time: number) => {
     if (!playerRef.current || !readyRef.current) return;
@@ -156,9 +173,9 @@ export const useYouTubePlayer = ({
     if (!playerRef.current || !readyRef.current) return;
     suppressRef.current = true;
     playerRef.current.loadVideoById(newVideoId);
-    playerRef.current.playVideo();
+    playWithAutoplayFallback();
     setTimeout(() => { suppressRef.current = false; }, 1000);
-  }, []);
+  }, [playWithAutoplayFallback]);
 
   const getCurrentTime = useCallback((): number => {
     if (!playerRef.current || !readyRef.current) return 0;
