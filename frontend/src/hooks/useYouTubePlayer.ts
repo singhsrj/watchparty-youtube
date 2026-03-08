@@ -68,6 +68,7 @@ export const useYouTubePlayer = ({
   const playerRef = useRef<any>(null);
   const readyRef = useRef(false);
   const suppressRef = useRef(false); // suppress events triggered by sync
+  const hasStartedPlaybackRef = useRef(false);
   const onReadyRef = useRef<UseYouTubePlayerOptions['onReady']>();
   const onStateChangeRef = useRef<UseYouTubePlayerOptions['onStateChange']>();
 
@@ -86,7 +87,11 @@ export const useYouTubePlayer = ({
     window.setTimeout(() => {
       if (!playerRef.current || !readyRef.current) return;
       const state = playerRef.current.getPlayerState?.();
-      if (state !== 1) {
+      // Avoid temporary mute flicker on normal resume:
+      // - 1: playing
+      // - 3: buffering before playing
+      // Run muted fallback only for true initial autoplay-block cases.
+      if (state !== 1 && state !== 3 && !hasStartedPlaybackRef.current) {
         playerRef.current.mute?.();
         playerRef.current.playVideo?.();
 
@@ -132,6 +137,10 @@ export const useYouTubePlayer = ({
           onReadyRef.current?.();
         },
         onStateChange: (event: any) => {
+          if (event?.data === 1 || event?.data === window.YT?.PlayerState?.PLAYING) {
+            hasStartedPlaybackRef.current = true;
+          }
+
           if (!suppressRef.current) {
             onStateChangeRef.current?.(event.data);
           }
