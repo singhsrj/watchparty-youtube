@@ -10,15 +10,27 @@ interface VideoPlayerProps {
 }
 
 const PLAYER_ID = 'youtube-player-container';
+const VOLUME_STORAGE_KEY = 'watchparty:local-volume';
+const DEFAULT_VOLUME = 60;
+
+const getInitialLocalVolume = (): number => {
+  const raw = window.localStorage.getItem(VOLUME_STORAGE_KEY);
+  const parsed = raw ? Number(raw) : NaN;
+  if (Number.isNaN(parsed)) return DEFAULT_VOLUME;
+  return Math.max(0, Math.min(100, Math.floor(parsed)));
+};
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => {
   const { emitPlay, emitPause, emitSeek } = useSocket();
   const prevVideoId = useRef<string>('');
+  const initialVolumeRef = useRef<number>(getInitialLocalVolume());
+  const volumeInitializedRef = useRef(false);
   const [duration, setDuration] = useState(0);
   const [sliderTime, setSliderTime] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [volume, setVolumeState] = useState(100);
+  const [volume, setVolumeState] = useState(initialVolumeRef.current);
   const [muted, setMuted] = useState(false);
+  const [showEndedOverlay, setShowEndedOverlay] = useState(false);
 
   const {
     syncPlay,
@@ -31,6 +43,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     isMuted,
     setVolume,
     toggleMute,
+    readyRef,
   } = useYouTubePlayer({
     containerId: PLAYER_ID,
     videoId: videoState.videoId,
@@ -43,7 +56,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
         }
       }
     },
-    onStateChange: () => {},
+    onStateChange: (state) => {
+      if (state === 0) {
+        setShowEndedOverlay(true);
+      } else if (state === 1 || state === 2 || state === 3 || state === 5 || state === -1) {
+        setShowEndedOverlay(false);
+      }
+    },
   });
 
   // React to incoming sync_state changes
@@ -55,6 +74,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     if (videoChanged) {
       loadVideo(videoState.videoId);
       prevVideoId.current = videoState.videoId;
+      setShowEndedOverlay(false);
       return;
     }
 
@@ -90,6 +110,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
 
   const handlePlay = () => {
     if (!canControl) return;
+    setShowEndedOverlay(false);
     emitPlay(getCurrentTime());
   };
 
@@ -100,6 +121,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
 
   const handleToggleByClick = () => {
     if (!canControl || !videoState.videoId) return;
+    setShowEndedOverlay(false);
     const state = getPlayerState();
     if (state === 1) {
       emitPause(getCurrentTime());
@@ -113,11 +135,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
       setDuration(0);
       setSliderTime(0);
       setMuted(false);
-      setVolumeState(100);
+      setVolumeState(initialVolumeRef.current);
+      volumeInitializedRef.current = false;
       return;
     }
 
     const tick = () => {
+      if (readyRef.current && !volumeInitializedRef.current) {
+        const initialVolume = initialVolumeRef.current;
+        setVolume(initialVolume);
+        setVolumeState(initialVolume);
+        setMuted(initialVolume === 0);
+        volumeInitializedRef.current = true;
+      }
+
       const nextDuration = getDuration();
       if (nextDuration > 0) {
         setDuration(nextDuration);
@@ -134,7 +165,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     tick();
     const id = window.setInterval(tick, 300);
     return () => window.clearInterval(id);
-  }, [videoState.videoId, isDragging, getCurrentTime, getDuration, getVolume, isMuted]);
+  }, [videoState.videoId, isDragging, getCurrentTime, getDuration, getVolume, isMuted, setVolume, readyRef]);
 
   const formatTime = (seconds: number) => {
     const safe = Math.max(0, Math.floor(seconds));
@@ -149,12 +180,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
 
   const commitSeek = () => {
     if (!canControl || !videoState.videoId) return;
+    setShowEndedOverlay(false);
     const nextTime = Math.max(0, Math.min(sliderTime, duration || sliderTime));
     emitSeek(nextTime);
     setIsDragging(false);
   };
 
+  const handleReplay = () => {
+    if (!canControl) return;
+    setShowEndedOverlay(false);
+    emitSeek(0);
+    emitPlay(0);
+  };
+
   const handleVolumeChange = (nextVolume: number) => {
+    window.localStorage.setItem(VOLUME_STORAGE_KEY, String(nextVolume));
     setVolumeState(nextVolume);
     setVolume(nextVolume);
     setMuted(nextVolume === 0);
@@ -165,9 +205,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
     const nextMuted = !muted;
     setMuted(nextMuted);
     if (!nextMuted && volume === 0) {
+      window.localStorage.setItem(VOLUME_STORAGE_KEY, '50');
       setVolume(50);
       setVolumeState(50);
+      return;
     }
+
+    window.localStorage.setItem(VOLUME_STORAGE_KEY, String(nextMuted ? 0 : volume));
   };
 
   return (
@@ -183,6 +227,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoState, canControl }) => 
 
       {/* Keep full size so iframe always fills whatever container height/width you set in RoomPage. */}
       <div id={PLAYER_ID} className="w-full h-full" />
+
+      {/* Hide YouTube's end-screen recommendations with an app-owned overlay. */}
+      {videoState.videoId && showEndedOverlay && (
+        <div className="absolute inset-0 z-40 bg-black/95 flex flex-col items-center justify-center gap-3">
+          <p className="text-sm text-white/90 font-body">Playback ended</p>
+          {canControl ? (
+            <button
+              type="button"
+              onClick={handleReplay}
+              className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm"
+            >
+              Replay
+            </button>
+          ) : (
+            <p className="text-xs text-white/60 font-body">Waiting for host to replay</p>
+          )}
+        </div>
+      )}
 
       {/* Click anywhere on video to toggle play/pause (host/moderator only). */}
       {canControl && videoState.videoId && (
