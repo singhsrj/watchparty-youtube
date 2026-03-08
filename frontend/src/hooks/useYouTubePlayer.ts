@@ -14,6 +14,51 @@ interface UseYouTubePlayerOptions {
   onStateChange?: (state: number) => void;
 }
 
+const YT_API_SCRIPT_ID = 'youtube-iframe-api-script';
+let youtubeApiReadyPromise: Promise<void> | null = null;
+
+const ensureYouTubeIframeApi = (): Promise<void> => {
+  if (window.YT?.Player) {
+    return Promise.resolve();
+  }
+
+  if (youtubeApiReadyPromise) {
+    return youtubeApiReadyPromise;
+  }
+
+  youtubeApiReadyPromise = new Promise((resolve, reject) => {
+    const previousReadyHandler = window.onYouTubeIframeAPIReady;
+
+    window.onYouTubeIframeAPIReady = () => {
+      previousReadyHandler?.();
+      resolve();
+    };
+
+    const existingScript =
+      (document.getElementById(YT_API_SCRIPT_ID) as HTMLScriptElement | null) ||
+      (document.querySelector('script[src*="youtube.com/iframe_api"]') as HTMLScriptElement | null);
+    if (existingScript) {
+      if (!existingScript.id) {
+        existingScript.id = YT_API_SCRIPT_ID;
+      }
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = YT_API_SCRIPT_ID;
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    script.onerror = () => {
+      youtubeApiReadyPromise = null;
+      reject(new Error('Failed to load YouTube IFrame API'));
+    };
+
+    document.head.appendChild(script);
+  });
+
+  return youtubeApiReadyPromise;
+};
+
 export const useYouTubePlayer = ({
   containerId,
   videoId,
@@ -23,9 +68,17 @@ export const useYouTubePlayer = ({
   const playerRef = useRef<any>(null);
   const readyRef = useRef(false);
   const suppressRef = useRef(false); // suppress events triggered by sync
+  const onReadyRef = useRef<UseYouTubePlayerOptions['onReady']>();
+  const onStateChangeRef = useRef<UseYouTubePlayerOptions['onStateChange']>();
+
+  useEffect(() => {
+    onReadyRef.current = onReady;
+    onStateChangeRef.current = onStateChange;
+  }, [onReady, onStateChange]);
 
   const initPlayer = useCallback(() => {
-    if (!window.YT || playerRef.current) return;
+    const container = document.getElementById(containerId);
+    if (!window.YT?.Player || playerRef.current || !container) return;
 
     playerRef.current = new window.YT.Player(containerId, {
       height: '100%',
@@ -43,11 +96,11 @@ export const useYouTubePlayer = ({
       events: {
         onReady: () => {
           readyRef.current = true;
-          onReady?.();
+          onReadyRef.current?.();
         },
         onStateChange: (event: any) => {
           if (!suppressRef.current) {
-            onStateChange?.(event.data);
+            onStateChangeRef.current?.(event.data);
           }
         },
       },
@@ -55,24 +108,26 @@ export const useYouTubePlayer = ({
   }, [containerId, videoId]);
 
   useEffect(() => {
-    if (window.YT && window.YT.Player) {
-      initPlayer();
-    } else {
-      const prev = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = () => {
-        prev?.();
+    let active = true;
+
+    ensureYouTubeIframeApi()
+      .then(() => {
+        if (!active) return;
         initPlayer();
-      };
-    }
+      })
+      .catch((error) => {
+        console.error(error);
+      });
 
     return () => {
+      active = false;
       if (playerRef.current) {
         playerRef.current.destroy();
         playerRef.current = null;
         readyRef.current = false;
       }
     };
-  }, []);
+  }, [initPlayer]);
 
   const syncPlay = useCallback((time: number) => {
     if (!playerRef.current || !readyRef.current) return;
@@ -101,7 +156,7 @@ export const useYouTubePlayer = ({
     if (!playerRef.current || !readyRef.current) return;
     suppressRef.current = true;
     playerRef.current.loadVideoById(newVideoId);
-    playerRef.current.pauseVideo();
+    playerRef.current.playVideo();
     setTimeout(() => { suppressRef.current = false; }, 1000);
   }, []);
 
@@ -115,5 +170,20 @@ export const useYouTubePlayer = ({
     return playerRef.current.getPlayerState?.() ?? -1;
   }, []);
 
-  return { syncPlay, syncPause, syncSeek, loadVideo, getCurrentTime, getPlayerState, playerRef, readyRef };
+  const getDuration = useCallback((): number => {
+    if (!playerRef.current || !readyRef.current) return 0;
+    return playerRef.current.getDuration?.() ?? 0;
+  }, []);
+
+  return {
+    syncPlay,
+    syncPause,
+    syncSeek,
+    loadVideo,
+    getCurrentTime,
+    getPlayerState,
+    getDuration,
+    playerRef,
+    readyRef,
+  };
 };

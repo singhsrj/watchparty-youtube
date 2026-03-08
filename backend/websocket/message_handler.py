@@ -110,7 +110,9 @@ class MessageHandler:
                 room.video_state.current_time = room_model.current_time or 0.0
                 room.video_state.is_playing = False  # Always start paused on restore
                 self.registry.register(room)
+                already_joined = False
             else:
+                already_joined = room.get_participant(sid) is not None
                 room.add_participant(sid, username)
 
             self.registry.map_socket(sid, room_id)
@@ -136,12 +138,13 @@ class MessageHandler:
             }, to=sid)
 
             # Notify everyone else
-            await self.sio.emit("user_joined", {
-                "username": username,
-                "userId": sid,
-                "role": participant.role.value,
-                "participants": room.get_participants_dict(),
-            }, room=room_id, skip_sid=sid)
+            if not already_joined:
+                await self.sio.emit("user_joined", {
+                    "username": username,
+                    "userId": sid,
+                    "role": participant.role.value,
+                    "participants": room.get_participants_dict(),
+                }, room=room_id, skip_sid=sid)
 
             logger.info(f"[{room.name}] {username} ({participant.role.value}) joined — {room.participant_count()} total")
 

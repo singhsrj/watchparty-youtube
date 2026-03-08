@@ -39,6 +39,13 @@ class Room:
     # ─── Participant Management ────────────────────────────────────────────────
 
     def add_participant(self, socket_id: str, username: str) -> Participant:
+        existing = self._participants.get(socket_id)
+        if existing:
+            # Duplicate join from same socket should not downgrade role.
+            if username and existing.username != username:
+                existing.username = username
+            return existing
+
         participant = Participant(socket_id=socket_id, username=username, role=Role.PARTICIPANT)
         self._participants[socket_id] = participant
         return participant
@@ -146,14 +153,16 @@ class Room:
 
     def seek(self, requester_socket_id: str, time: float) -> VideoState:
         self._assert_playback_permission(requester_socket_id)
-        self.video_state.update_time(time, is_playing=self.video_state.is_playing)
+        # Product behavior: seeking should always resume playback.
+        self.video_state.update_time(time, is_playing=True)
         return self.video_state
 
     def change_video(self, requester_socket_id: str, video_id: str) -> VideoState:
         self._assert_playback_permission(requester_socket_id)
         self.video_state.video_id = video_id
         self.video_state.current_time = 0.0
-        self.video_state.is_playing = False
+        # Product behavior: newly loaded video auto-plays.
+        self.video_state.is_playing = True
         self.video_state.last_updated = time.time()
         return self.video_state
 

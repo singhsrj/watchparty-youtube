@@ -96,7 +96,7 @@ const RoomPage: React.FC = () => {
   }
 
   return (
-    <div className="h-screen bg-void flex flex-col overflow-hidden">
+    <div className="h-[100dvh] bg-void flex flex-col overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2.5 bg-panel border-b border-border shrink-0">
         <div className="flex items-center gap-3">
@@ -157,9 +157,9 @@ const RoomPage: React.FC = () => {
       {/* Main content */}
       <div className="flex-1 flex min-h-0">
         {/* Video area */}
-        <div className="flex-1 flex flex-col min-w-0 p-3 gap-3">
+        <div className="flex-1 flex flex-col min-w-0 p-3 gap-3 overflow-hidden">
           <VideoInput canControl={canControl} />
-          <div className="flex-1 min-h-0">
+          <div className="h-[30vh] sm:h-[34vh] lg:h-[38vh] min-h-[180px] sm:min-h-[220px] max-h-[420px]">
             <VideoPlayer videoState={videoState} canControl={canControl} />
           </div>
 
@@ -223,7 +223,7 @@ const RoomPage: React.FC = () => {
           </div>
 
           {/* Tab content */}
-          <div className="flex-1 min-h-0 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-y-auto">
             {activeTab === 'participants' ? (
               <ParticipantsPanel participants={participants} me={me} />
             ) : (
