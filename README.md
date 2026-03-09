@@ -7,7 +7,7 @@
 
 ## Preview
 
-![WatchParty app preview](./Screenshot%202026-03-09%20183335.jpg)
+![WatchParty app preview](./Screenshot%202026-03-09%20183630.jpg)
 
 ---
 
