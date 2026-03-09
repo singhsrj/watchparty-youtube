@@ -2,7 +2,12 @@
 
 > Watch YouTube videos together in perfect real-time sync.
 
-**Live URL:** `https://your-app.netlify.app` *(update after deploying)*
+
+**Live App:** `https://watchpartyt.netlify.app/`
+
+## Preview
+
+![WatchParty app preview](./project_screenshots/Screenshot%202026-03-09%20183335.jpg)
 
 ---
 
@@ -21,7 +26,7 @@
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React + TypeScript + Vite + Tailwind CSS |
+| Frontend | React + Vite + Tailwind CSS |
 | Backend | Python + FastAPI |
 | WebSockets | python-socketio (Socket.IO) |
 | Database | PostgreSQL (Render) / SQLite (local dev) |
@@ -76,9 +81,8 @@ MessageHandler          — registers all Socket.IO events, orchestrates logic
 
 ## Local Development
 
-### Prerequisites
-- Python 3.11+
-- Node.js 20+
+- Python 3.11.9
+- Node.js 22.13.1
 - PostgreSQL (or SQLite for dev — auto-used if no `DATABASE_URL` set)
 
 ### Backend
@@ -182,3 +186,27 @@ npm run dev
 - ✅ **Persistent rooms** — Video state saved to PostgreSQL; rooms survive server restarts
 - ✅ **Auto host promotion** — When host leaves, oldest moderator/participant auto-promotes
 - ✅ **Text chat** — Real-time group chat with role badges
+
+---
+
+## Future Architecture Note
+
+I also looked into adding a Redis + Nginx architecture for scaling and reliability.
+
+- Redis can be used for shared pub/sub, room state caching, and Socket.IO coordination across multiple backend instances.
+- Nginx can be used as a reverse proxy/load balancer in front of FastAPI/Socket.IO with correct WebSocket upgrade handling.
+
+I will continue learning this setup and implement it in a future update.
+
+---
+
+## Top 3 Challenges Faced
+
+1. Socket.IO connection stuck in production until transport handling was fixed.
+The key issue was realtime handshake behavior across Netlify and Render. Allowing polling-first negotiation (instead of forcing websocket-first) resolved the connection flow.
+
+2. Frontend production fallback accidentally pointed to localhost.
+When deployment environment variables were missing or inconsistent, API and socket clients fell back to `http://localhost:8000`, which broke hosted usage.
+
+3. Cross-origin consistency between HTTP and realtime layers.
+HTTP endpoints worked, but websocket reliability required explicit and consistent origin configuration for FastAPI CORS and Socket.IO CORS across local and production domains.
