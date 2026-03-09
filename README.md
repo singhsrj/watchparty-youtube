@@ -2,7 +2,14 @@
 
 > Watch YouTube videos together in perfect real-time sync.
 
-**Live URL:** `https://your-app.netlify.app` *(update after deploying)*
+## Final Update (Production)
+
+The app is now fully working in production.
+
+- Frontend (Netlify): `https://watchpartyt.netlify.app/`
+- Backend (Render): `https://watchparty-youtube.onrender.com/`
+
+**Live App:** `https://watchpartyt.netlify.app/`
 
 ---
 
@@ -21,7 +28,7 @@
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React + TypeScript + Vite + Tailwind CSS |
+| Frontend | React + Vite + Tailwind CSS |
 | Backend | Python + FastAPI |
 | WebSockets | python-socketio (Socket.IO) |
 | Database | PostgreSQL (Render) / SQLite (local dev) |
@@ -182,3 +189,14 @@ npm run dev
 - ✅ **Persistent rooms** — Video state saved to PostgreSQL; rooms survive server restarts
 - ✅ **Auto host promotion** — When host leaves, oldest moderator/participant auto-promotes
 - ✅ **Text chat** — Real-time group chat with role badges
+
+---
+
+## Future Architecture Note
+
+I also looked into adding a Redis + Nginx architecture for scaling and reliability.
+
+- Redis can be used for shared pub/sub, room state caching, and Socket.IO coordination across multiple backend instances.
+- Nginx can be used as a reverse proxy/load balancer in front of FastAPI/Socket.IO with correct WebSocket upgrade handling.
+
+I will continue learning this setup and implement it in a future update.
