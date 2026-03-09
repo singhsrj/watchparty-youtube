@@ -2,12 +2,6 @@
 
 > Watch YouTube videos together in perfect real-time sync.
 
-## Final Update (Production)
-
-The app is now fully working in production.
-
-- Frontend (Netlify): `https://watchpartyt.netlify.app/`
-- Backend (Render): `https://watchparty-youtube.onrender.com/`
 
 **Live App:** `https://watchpartyt.netlify.app/`
 
