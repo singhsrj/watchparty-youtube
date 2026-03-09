@@ -5,6 +5,10 @@
 
 **Live App:** `https://watchpartyt.netlify.app/`
 
+## Preview
+
+![WatchParty app preview](./project_screenshots/Screenshot%202026-03-09%20183335.jpg)
+
 ---
 
 ## Features
