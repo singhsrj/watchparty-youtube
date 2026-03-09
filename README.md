@@ -2,6 +2,13 @@
 
 > Watch YouTube videos together in perfect real-time sync.
 
+## Final Update (Production)
+
+The app is now fully working in production.
+
+- Frontend (Netlify): `https://watchpartyt.netlify.app/`
+- Backend (Render): `https://watchparty-youtube.onrender.com/`
+
 **Live App:** `https://watchpartyt.netlify.app/`
 
 ---
@@ -76,9 +83,8 @@ MessageHandler          — registers all Socket.IO events, orchestrates logic
 
 ## Local Development
 
-### Prerequisites
-- Python 3.11+
-- Node.js 20+
+- Python 3.11.9
+- Node.js 22.13.1
 - PostgreSQL (or SQLite for dev — auto-used if no `DATABASE_URL` set)
 
 ### Backend
