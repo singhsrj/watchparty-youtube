@@ -9,3 +9,7 @@
 
 [build.environment]
   NODE_VERSION = "20"
+
+[context.production.environment]
+  VITE_API_URL = "https://watchparty-youtube.onrender.com"
+  VITE_WS_URL = "https://watchparty-youtube.onrender.com"

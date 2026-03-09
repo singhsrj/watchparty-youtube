@@ -13,7 +13,7 @@ services:
           name: watchparty-db
           property: connectionString
       - key: FRONTEND_URL
-        value: https://your-frontend.netlify.app  # update after deploying frontend
+        value: https://watchpartyt.netlify.app
       - key: SECRET_KEY
         generateValue: true
 

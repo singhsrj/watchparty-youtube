@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:8000'
+const PROD_WS_URL = 'https://watchparty-youtube.onrender.com'
+const WS_URL = import.meta.env.VITE_WS_URL || PROD_WS_URL
 
 const SocketContext = createContext(null)
 

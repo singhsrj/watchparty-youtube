@@ -8,12 +8,18 @@ from core.database import create_tables
 from routers import rooms
 from websocket.message_handler import MessageHandler
 
+ALLOWED_ORIGINS = [
+    "https://watchpartyt.netlify.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+
 # ─── FastAPI App ──────────────────────────────────────────────────────────────
 app = FastAPI(title="WatchParty API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,7 +36,7 @@ def health_check():
 # ─── Socket.IO Server ─────────────────────────────────────────────────────────
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins=[settings.FRONTEND_URL, "http://localhost:5173", "http://localhost:3000", "*"],
+    cors_allowed_origins=ALLOWED_ORIGINS,
     logger=False,
     engineio_logger=False,
 )
@@ -46,7 +52,7 @@ socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 def startup():
     create_tables()
     print("✅ WatchParty backend started")
-    print(f"   Frontend URL: {settings.FRONTEND_URL}")
+    print(f"   Allowed Origins: {ALLOWED_ORIGINS}")
     print(f"   Database: {settings.DATABASE_URL[:30]}...")
 
 
