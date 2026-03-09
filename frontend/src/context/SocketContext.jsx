@@ -19,11 +19,16 @@ export const SocketProvider = ({ children }) => {
   const [kickedReason, setKickedReason] = useState(null)
 
   useEffect(() => {
-    const socket = io(WS_URL, { transports: ['websocket', 'polling'] })
+    // Keep transport negotiation default so Render can start with polling and upgrade.
+    const socket = io(WS_URL)
     socketRef.current = socket
 
     socket.on('connect', () => setConnected(true))
     socket.on('disconnect', () => setConnected(false))
+    socket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err?.message || err)
+      setError('Realtime connection failed. Retrying...')
+    })
 
     socket.on('room_joined', ({ room: joinedRoom, you }) => {
       setRoom(joinedRoom)

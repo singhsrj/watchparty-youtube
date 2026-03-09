@@ -41,6 +41,16 @@ sio = socketio.AsyncServer(
     engineio_logger=False,
 )
 
+
+@sio.event
+async def connect(sid, environ):
+    print(f"Socket connected: {sid}")
+
+
+@sio.event
+async def disconnect(sid):
+    print(f"Socket disconnected: {sid}")
+
 # Attach MessageHandler (registers all socket events)
 message_handler = MessageHandler(sio)
 
