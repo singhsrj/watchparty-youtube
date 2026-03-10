@@ -13,12 +13,12 @@
 
 ## Features
 
-- 🔴 **Real-time sync** — Play, pause, seek, and change video synced across all participants via WebSockets
-- 🎭 **Role-based access control** — Host, Moderator, and Participant roles with enforced permissions
-- 👑 **Host management** — Assign roles, remove participants, transfer host
-- 💬 **Group chat** — Real-time chat with role badges
-- 💾 **Persistent rooms** — Room state (video, position) saved in PostgreSQL
-- 🔗 **Room codes** — Share 8-character codes or direct links
+- **Real-time sync** — Play, pause, seek, and change video synced across all participants via WebSockets
+- **Role-based access control** — Host, Moderator, and Participant roles with enforced permissions
+- **Host management** — Assign roles, remove participants, transfer host
+- **Group chat** — Real-time chat with role badges
+- **Persistent rooms** — Room state (video, position) saved in PostgreSQL
+- **Room codes** — Share 8-character codes or direct links
 
 ---
 
@@ -181,11 +181,11 @@ npm run dev
 
 ## Bonus Features Implemented
 
-- ✅ **OOP WebSocket server** — `Room`, `Participant`, `VideoState`, `MessageHandler`, `RoomRegistry` classes
-- ✅ **Transfer host** — Host can pass control to any participant
-- ✅ **Persistent rooms** — Video state saved to PostgreSQL; rooms survive server restarts
-- ✅ **Auto host promotion** — When host leaves, oldest moderator/participant auto-promotes
-- ✅ **Text chat** — Real-time group chat with role badges
+- **OOP WebSocket server** — `Room`, `Participant`, `VideoState`, `MessageHandler`, `RoomRegistry` classes
+- **Transfer host** — Host can pass control to any participant
+- **Persistent rooms** — Video state saved to PostgreSQL; rooms survive server restarts
+- **Auto host promotion** — When host leaves, oldest moderator/participant auto-promotes
+- **Text chat** — Real-time group chat with role badges
 
 ---
 
