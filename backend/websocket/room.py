@@ -22,7 +22,7 @@ class Room:
     Manages participants, video state, roles, and broadcasts.
     """
 
-    def __init__(self, room_id: str, room_code: str, name: str, host_socket_id: str, host_username: str):
+    def __init__(self, room_id: str, room_code: str, name: str, owner_client_id: Optional[str] = None):
         self.room_id = room_id
         self.room_code = room_code
         self.name = name
@@ -32,14 +32,17 @@ class Room:
         self.video_state = VideoState()
         self.queue: List[str] = []
 
-        # Add the host
-        host = Participant(socket_id=host_socket_id, username=host_username, role=Role.HOST)
-        self._participants[host_socket_id] = host
-        self.host_socket_id = host_socket_id
+        # The room's owner is identified by a stable client id, not a socket id,
+        # so they get the HOST role back after a refresh / reconnect.
+        # None means nobody has claimed the room yet (first joiner becomes owner).
+        self.owner_client_id: Optional[str] = owner_client_id
+        self.host_socket_id: Optional[str] = None
 
     # ─── Participant Management ────────────────────────────────────────────────
 
-    def add_participant(self, socket_id: str, username: str) -> Participant:
+    def add_participant(self, socket_id: str, username: str, client_id: Optional[str] = None) -> Participant:
+        client_id = client_id or socket_id
+
         existing = self._participants.get(socket_id)
         if existing:
             # Duplicate join from same socket should not downgrade role.
@@ -47,9 +50,57 @@ class Room:
                 existing.username = username
             return existing
 
-        participant = Participant(socket_id=socket_id, username=username, role=Role.PARTICIPANT)
+        # Same client coming back on a new socket (page refresh / reconnect):
+        # move their existing seat to the new socket so role and join order are kept.
+        returning = self.find_by_client_id(client_id)
+        if returning:
+            del self._participants[returning.socket_id]
+            returning.socket_id = socket_id
+            if username:
+                returning.username = username
+            self._participants[socket_id] = returning
+            if returning.role == Role.HOST:
+                self.host_socket_id = socket_id
+            self._settle_host(returning)
+            return returning
+
+        participant = Participant(
+            socket_id=socket_id, username=username, role=Role.PARTICIPANT, client_id=client_id
+        )
         self._participants[socket_id] = participant
+        self._settle_host(participant)
         return participant
+
+    def find_by_client_id(self, client_id: Optional[str]) -> Optional[Participant]:
+        if not client_id:
+            return None
+        for p in self._participants.values():
+            if p.client_id == client_id:
+                return p
+        return None
+
+    def get_host(self) -> Optional[Participant]:
+        return next((p for p in self._participants.values() if p.role == Role.HOST), None)
+
+    def _settle_host(self, participant: Participant):
+        """Decide whether a (re)joining participant should hold the HOST role."""
+        if self.owner_client_id is None:
+            # Unclaimed room: first joiner becomes the owner.
+            self.owner_client_id = participant.client_id
+            self._make_host(participant)
+        elif participant.client_id == self.owner_client_id:
+            # The owner is back: take the role from any temporary (auto-promoted) host.
+            current = self.get_host()
+            if current and current is not participant:
+                current.role = Role.PARTICIPANT
+            self._make_host(participant)
+        elif self.get_host() is None:
+            # Owner is gone and nobody is hosting: act as host so the room stays usable.
+            self._make_host(participant)
+
+    def _make_host(self, participant: Participant):
+        participant.role = Role.HOST
+        self.host_socket_id = participant.socket_id
 
     def remove_participant(self, socket_id: str) -> Optional[Participant]:
         return self._participants.pop(socket_id, None)
@@ -99,6 +150,9 @@ class Room:
         current_host.role = Role.PARTICIPANT
         new_host.role = Role.HOST
         self.host_socket_id = new_host_socket_id
+        # A deliberate transfer changes who owns the room, so the old host
+        # does not take it back when they refresh.
+        self.owner_client_id = new_host.client_id
 
         return current_host, new_host
 

@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const PROD_API_URL = 'https://watchparty-youtube.onrender.com'
+// const PROD_API_URL = 'localhost:3000'
 const API_URL = import.meta.env.VITE_API_URL || PROD_API_URL
 
 const api = axios.create({

@@ -28,6 +28,9 @@ class Participant:
     username: str
     role: Role = Role.PARTICIPANT
     joined_at: float = field(default_factory=time.time)
+    # Stable identity that survives page refreshes (socket ids do not).
+    # Never sent to other clients.
+    client_id: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {

@@ -63,7 +63,11 @@ def startup():
     create_tables()
     print("✅ WatchParty backend started")
     print(f"   Allowed Origins: {ALLOWED_ORIGINS}")
-    print(f"   Database: {settings.DATABASE_URL[:30]}...")
+    db_url = settings.DATABASE_URL_POOLED or settings.DATABASE_URL
+    # Log only scheme + host, never credentials.
+    db_target = db_url.split("@")[-1].split("/")[0] if "@" in db_url else db_url.split(":")[0]
+    print(f"   Database: {db_url.split(':')[0]} @ {db_target}"
+          f"{' (pooled)' if settings.DATABASE_URL_POOLED else ''}")
 
 
 if __name__ == "__main__":

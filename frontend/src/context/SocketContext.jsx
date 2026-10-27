@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
+import { getClientId } from '../utils/clientId'
 
 const PROD_WS_URL = 'https://watchparty-youtube.onrender.com'
 const WS_URL = import.meta.env.VITE_WS_URL || PROD_WS_URL
@@ -97,8 +98,18 @@ export const SocketProvider = ({ children }) => {
     }
   }, [])
 
+  // Keep my own role in sync with the authoritative participants list.
+  useEffect(() => {
+    const id = socketRef.current?.id
+    if (!id) return
+    const self = participants.find((p) => p.socketId === id)
+    if (self) {
+      setMe((prev) => (prev && prev.role !== self.role ? { ...prev, role: self.role } : prev))
+    }
+  }, [participants])
+
   const joinRoom = (roomId, username) => {
-    socketRef.current?.emit('join_room', { roomId, username })
+    socketRef.current?.emit('join_room', { roomId, username, clientId: getClientId() })
   }
 
   const leaveRoom = () => {

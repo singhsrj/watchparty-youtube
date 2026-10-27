@@ -1,0 +1,535 @@
+diff --git a/backend/models/room.py b/backend/models/room.py
+index a7325a2..8e77b3d 100644
+--- a/backend/models/room.py
++++ b/backend/models/room.py
+@@ -21,7 +21,7 @@ class Room(Base):
+     id = Column(String, primary_key=True, default=generate_uuid)
+     code = Column(String(8), unique=True, nullable=False, default=generate_room_code)
+     name = Column(String(100), nullable=False)
+-    host_id = Column(String, nullable=True)  # socket id of current host
++    host_id = Column(String, nullable=True)  # client id (stable across refreshes) of the room owner/host
+     current_video_id = Column(String, nullable=True)
+     current_time = Column(Float, default=0.0)
+     is_playing = Column(Boolean, default=False)
+diff --git a/backend/regression_host_refresh_test.py b/backend/regression_host_refresh_test.py
+new file mode 100644
+index 0000000..2adc08a
+--- /dev/null
++++ b/backend/regression_host_refresh_test.py
+@@ -0,0 +1,126 @@
++"""Regression: a host (or moderator) who refreshes must keep their role.
++
++A refresh = old socket disconnects, a new socket joins with the same clientId.
++Run the backend first (python main.py), then: python regression_host_refresh_test.py
++"""
++import asyncio
++
++import httpx
++import socketio
++
++BASE_URL = "http://127.0.0.1:8000"
++failures = []
++
++
++def check(name, ok, details=""):
++    print(f"[{'PASS' if ok else 'FAIL'}] {name}{': ' + str(details) if details else ''}")
++    if not ok:
++        failures.append(name)
++
++
++async def create_room():
++    async with httpx.AsyncClient(timeout=10.0) as c:
++        r = await c.post(f"{BASE_URL}/api/rooms/", json={"name": "Refresh", "username": "seed"})
++        r.raise_for_status()
++        return r.json()["id"]
++
++
++async def connect(username, room_id, client_id):
++    sio = socketio.AsyncClient(reconnection=False)
++    state = {"you": None, "participants": []}
++
++    @sio.on("room_joined")
++    async def _joined(data):
++        state["you"] = data["you"]
++        state["participants"] = data["room"]["participants"]
++
++    @sio.on("user_joined")
++    async def _uj(data):
++        state["participants"] = data["participants"]
++
++    @sio.on("user_left")
++    async def _ul(data):
++        state["participants"] = data["participants"]
++
++    await sio.connect(BASE_URL, transports=["websocket"])
++    await sio.emit("join_room", {"roomId": room_id, "username": username, "clientId": client_id})
++    for _ in range(40):
++        if state["you"]:
++            break
++        await asyncio.sleep(0.05)
++    return sio, state
++
++
++def roles(state):
++    return {p["username"]: p["role"] for p in state["participants"]}
++
++
++async def main():
++    # 1) Solo host refreshes: old socket disconnects first, then new one joins.
++    room = await create_room()
++    sio, st = await connect("Host", room, "host-1")
++    check("1. first joiner is host", st["you"]["role"] == "host")
++    await sio.disconnect()
++    await asyncio.sleep(0.3)
++    sio, st = await connect("Host", room, "host-1")
++    check("1. solo host keeps host after refresh", st["you"]["role"] == "host", st["you"]["role"])
++    await sio.disconnect()
++
++    # 2) Host refreshes while others are present (old disconnects first).
++    room = await create_room()
++    host, hst = await connect("Host", room, "host-2")
++    guest, gst = await connect("Guest", room, "guest-2")
++    check("2. guest is participant", gst["you"]["role"] == "participant")
++    await host.disconnect()
++    await asyncio.sleep(0.5)
++    host, hst = await connect("Host", room, "host-2")
++    check("2. host keeps host with guest present", hst["you"]["role"] == "host", hst["you"]["role"])
++    await asyncio.sleep(0.3)
++    check("2. guest still participant", roles(gst).get("Guest") == "participant", roles(gst))
++    check("2. no duplicate host entry", [p["username"] for p in hst["participants"]].count("Host") == 1)
++    check("2. only one host in list", list(roles(hst).values()).count("host") == 1, roles(hst))
++
++    # 3) New socket joins BEFORE the old one disconnects (race).
++    host2, hst2 = await connect("Host", room, "host-2")
++    check("3. rejoin before old disconnect keeps host", hst2["you"]["role"] == "host", hst2["you"]["role"])
++    await host.disconnect()  # the stale socket finally goes away
++    await asyncio.sleep(0.5)
++    await host2.emit("play", {"currentTime": 1.0})
++    await asyncio.sleep(0.3)
++    check("3. new socket is still the single host", list(roles(gst).values()).count("host") == 1, roles(gst))
++
++    # 4) Moderator keeps role across refresh.
++    mod_id = next(p["socketId"] for p in hst2["participants"] if p["username"] == "Guest")
++    await host2.emit("assign_role", {"userId": mod_id, "role": "moderator"})
++    await asyncio.sleep(0.3)
++    await guest.disconnect()
++    await asyncio.sleep(0.3)
++    guest, gst = await connect("Guest", room, "guest-2")
++    check("4. moderator keeps role after refresh", gst["you"]["role"] == "moderator", gst["you"]["role"])
++
++    # 5) Deliberate transfer: old host must NOT reclaim on refresh.
++    new_host_sid = gst["you"]["socketId"]
++    await host2.emit("transfer_host", {"userId": new_host_sid})
++    await asyncio.sleep(0.3)
++    await host2.disconnect()
++    await asyncio.sleep(0.3)
++    host3, h3 = await connect("Host", room, "host-2")
++    check("5. old host does not reclaim after transfer", h3["you"]["role"] == "participant", h3["you"]["role"])
++
++    # 6) Duplicate join from same socket still fine (existing behaviour).
++    room = await create_room()
++    s, st = await connect("Solo", room, "solo-1")
++    await s.emit("join_room", {"roomId": room, "username": "Solo", "clientId": "solo-1"})
++    await asyncio.sleep(0.3)
++    check("6. duplicate join keeps host", st["you"]["role"] == "host")
++
++    for c in (guest, host3, s):
++        if c.connected:
++            await c.disconnect()
++
++    print("\nOverall:", "FAIL" if failures else "PASS")
++    raise SystemExit(1 if failures else 0)
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
+diff --git a/backend/websocket/message_handler.py b/backend/websocket/message_handler.py
+index e8957ff..59eb2c1 100644
+--- a/backend/websocket/message_handler.py
++++ b/backend/websocket/message_handler.py
+@@ -1,3 +1,4 @@
++import asyncio
+ import socketio
+ import logging
+ from typing import Dict, Optional
+@@ -46,6 +47,11 @@ class RoomRegistry:
+         self._rooms.pop(room_id, None)
+ 
+ 
++# How long a disconnected host/moderator keeps their seat, so a page refresh
++# or brief network drop does not cost them their role.
++DISCONNECT_GRACE_SECONDS = 15
++
++
+ class MessageHandler:
+     """
+     OOP WebSocket message handler.
+@@ -55,6 +61,8 @@ class MessageHandler:
+     def __init__(self, sio: socketio.AsyncServer):
+         self.sio = sio
+         self.registry = RoomRegistry()
++        # (room_id, client_id) -> task that removes a host/moderator after the grace period.
++        self._pending_removals: Dict[tuple, asyncio.Task] = {}
+         self._register_events()
+ 
+     def _register_events(self):
+@@ -78,6 +86,8 @@ class MessageHandler:
+     async def handle_join_room(self, sid: str, data: dict):
+         room_id = data.get("roomId")
+         username = data.get("username", "Anonymous")
++        # Stable identity that survives refreshes; fall back to the socket id for old clients.
++        client_id = data.get("clientId") or sid
+ 
+         if not room_id:
+             await self._emit_error(sid, "roomId is required")
+@@ -96,33 +106,45 @@ class MessageHandler:
+ 
+             # Get or create in-memory room
+             room = self.registry.get_room_by_id(room_id)
+-            is_first_join = room is None
+-
+-            if is_first_join:
+-                # Restore from DB — first joiner becomes host
++            if room is None:
++                # Restore from DB. host_id stores the owner's client id.
+                 room = Room(
+                     room_id=room_model.id,
+                     room_code=room_model.code,
+                     name=room_model.name,
+-                    host_socket_id=sid,
+-                    host_username=username,
++                    owner_client_id=room_model.host_id,
+                 )
+-                # Restore video state
+                 room.video_state.video_id = room_model.current_video_id or ""
+                 room.video_state.current_time = room_model.current_time or 0.0
+                 room.video_state.is_playing = False  # Always start paused on restore
+                 self.registry.register(room)
+-                already_joined = False
+-            else:
+-                already_joined = room.get_participant(sid) is not None
+-                room.add_participant(sid, username)
++
++            already_joined = room.get_participant(sid) is not None
++            previous = None if already_joined else room.find_by_client_id(client_id)
++            old_sid = previous.socket_id if previous else None
++
++            participant = room.add_participant(sid, username, client_id)
++
++            if old_sid:
++                # Same person on a new socket (refresh/reconnect): the old socket is stale.
++                self._cancel_pending_removal(room_id, client_id)
++                self.registry.unmap_socket(old_sid)
++                try:
++                    await self.sio.leave_room(old_sid, room_id)
++                except Exception:
++                    pass
++                db.query(RoomParticipant).filter(
++                    RoomParticipant.socket_id == old_sid,
++                    RoomParticipant.room_id == room_id,
++                ).delete()
+ 
+             self.registry.map_socket(sid, room_id)
+             await self.sio.enter_room(sid, room_id)
+ 
+-            participant = room.get_participant(sid)
++            # Persist owner + participant to DB
++            if room_model.host_id != room.owner_client_id:
++                room_model.host_id = room.owner_client_id
+ 
+-            # Persist participant to DB
+             db_participant = RoomParticipant(
+                 room_id=room_id,
+                 socket_id=sid,
+@@ -139,7 +161,8 @@ class MessageHandler:
+                 "you": participant.to_dict(),
+             }, to=sid)
+ 
+-            # Notify everyone else
++            # Notify everyone else (also refreshes their list when someone reconnects
++            # with a new socket id or a temporary host steps down)
+             if not already_joined:
+                 await self.sio.emit("user_joined", {
+                     "username": username,
+@@ -157,16 +180,45 @@ class MessageHandler:
+             db.close()
+ 
+     async def handle_leave_room(self, sid: str, data: dict = None):
+-        await self._handle_disconnect_for_socket(sid)
++        # Explicit leave: remove immediately, no grace period.
++        await self._remove_socket(sid)
+ 
+     async def handle_disconnect(self, sid: str):
+-        await self._handle_disconnect_for_socket(sid)
+-
+-    async def _handle_disconnect_for_socket(self, sid: str):
+         room = self.registry.get_room_by_socket(sid)
+-        if not room:
++        participant = room.get_participant(sid) if room else None
++
++        if participant and participant.client_id and participant.role in (Role.HOST, Role.MODERATOR):
++            # Probably a refresh or network blip. Keep the seat for a short grace period;
++            # if the same client rejoins, join_room hands the role back.
++            self.registry.unmap_socket(sid)
++            key = (room.room_id, participant.client_id)
++            self._cancel_pending_removal(*key)
++            self._pending_removals[key] = asyncio.create_task(
++                self._remove_after_grace(room, sid, key)
++            )
++            return
++
++        await self._remove_socket(sid)
++
++    def _cancel_pending_removal(self, room_id: str, client_id: str):
++        task = self._pending_removals.pop((room_id, client_id), None)
++        if task:
++            task.cancel()
++
++    async def _remove_after_grace(self, room: Room, sid: str, key: tuple):
++        try:
++            await asyncio.sleep(DISCONNECT_GRACE_SECONDS)
++        except asyncio.CancelledError:
+             return
++        self._pending_removals.pop(key, None)
++        await self._remove_participant(room, sid)
+ 
++    async def _remove_socket(self, sid: str):
++        room = self.registry.get_room_by_socket(sid)
++        if room:
++            await self._remove_participant(room, sid)
++
++    async def _remove_participant(self, room: Room, sid: str):
+         participant = room.get_participant(sid)
+         if not participant:
+             return
+@@ -322,6 +374,7 @@ class MessageHandler:
+         try:
+             new_host_id = data.get("userId")
+             old_host, new_host = room.transfer_host(sid, new_host_id)
++            self._persist_owner(room)
+ 
+             await self.sio.emit("host_transferred", {
+                 "oldHostId": sid,
+@@ -401,6 +454,20 @@ class MessageHandler:
+     async def _emit_error(self, sid: str, message: str):
+         await self.sio.emit("error", {"message": message}, to=sid)
+ 
++    def _persist_owner(self, room: Room):
++        """Persist the room owner's client id (stored in rooms.host_id)."""
++        db = SessionLocal()
++        try:
++            db.query(RoomModel).filter(RoomModel.id == room.room_id).update({
++                "host_id": room.owner_client_id,
++            })
++            db.commit()
++        except Exception as e:
++            logger.error(f"Failed to persist room owner: {e}")
++            db.rollback()
++        finally:
++            db.close()
++
+     def _persist_room_state(self, room: Room):
+         """Persist current video state to DB."""
+         db = SessionLocal()
+diff --git a/backend/websocket/participant.py b/backend/websocket/participant.py
+index 1a89f98..556de36 100644
+--- a/backend/websocket/participant.py
++++ b/backend/websocket/participant.py
+@@ -28,6 +28,9 @@ class Participant:
+     username: str
+     role: Role = Role.PARTICIPANT
+     joined_at: float = field(default_factory=time.time)
++    # Stable identity that survives page refreshes (socket ids do not).
++    # Never sent to other clients.
++    client_id: Optional[str] = None
+ 
+     def to_dict(self) -> dict:
+         return {
+diff --git a/backend/websocket/room.py b/backend/websocket/room.py
+index c3be318..f0339c2 100644
+--- a/backend/websocket/room.py
++++ b/backend/websocket/room.py
+@@ -22,7 +22,7 @@ class Room:
+     Manages participants, video state, roles, and broadcasts.
+     """
+ 
+-    def __init__(self, room_id: str, room_code: str, name: str, host_socket_id: str, host_username: str):
++    def __init__(self, room_id: str, room_code: str, name: str, owner_client_id: Optional[str] = None):
+         self.room_id = room_id
+         self.room_code = room_code
+         self.name = name
+@@ -32,14 +32,17 @@ class Room:
+         self.video_state = VideoState()
+         self.queue: List[str] = []
+ 
+-        # Add the host
+-        host = Participant(socket_id=host_socket_id, username=host_username, role=Role.HOST)
+-        self._participants[host_socket_id] = host
+-        self.host_socket_id = host_socket_id
++        # The room's owner is identified by a stable client id, not a socket id,
++        # so they get the HOST role back after a refresh / reconnect.
++        # None means nobody has claimed the room yet (first joiner becomes owner).
++        self.owner_client_id: Optional[str] = owner_client_id
++        self.host_socket_id: Optional[str] = None
+ 
+     # ─── Participant Management ────────────────────────────────────────────────
+ 
+-    def add_participant(self, socket_id: str, username: str) -> Participant:
++    def add_participant(self, socket_id: str, username: str, client_id: Optional[str] = None) -> Participant:
++        client_id = client_id or socket_id
++
+         existing = self._participants.get(socket_id)
+         if existing:
+             # Duplicate join from same socket should not downgrade role.
+@@ -47,10 +50,58 @@ class Room:
+                 existing.username = username
+             return existing
+ 
+-        participant = Participant(socket_id=socket_id, username=username, role=Role.PARTICIPANT)
++        # Same client coming back on a new socket (page refresh / reconnect):
++        # move their existing seat to the new socket so role and join order are kept.
++        returning = self.find_by_client_id(client_id)
++        if returning:
++            del self._participants[returning.socket_id]
++            returning.socket_id = socket_id
++            if username:
++                returning.username = username
++            self._participants[socket_id] = returning
++            if returning.role == Role.HOST:
++                self.host_socket_id = socket_id
++            self._settle_host(returning)
++            return returning
++
++        participant = Participant(
++            socket_id=socket_id, username=username, role=Role.PARTICIPANT, client_id=client_id
++        )
+         self._participants[socket_id] = participant
++        self._settle_host(participant)
+         return participant
+ 
++    def find_by_client_id(self, client_id: Optional[str]) -> Optional[Participant]:
++        if not client_id:
++            return None
++        for p in self._participants.values():
++            if p.client_id == client_id:
++                return p
++        return None
++
++    def get_host(self) -> Optional[Participant]:
++        return next((p for p in self._participants.values() if p.role == Role.HOST), None)
++
++    def _settle_host(self, participant: Participant):
++        """Decide whether a (re)joining participant should hold the HOST role."""
++        if self.owner_client_id is None:
++            # Unclaimed room: first joiner becomes the owner.
++            self.owner_client_id = participant.client_id
++            self._make_host(participant)
++        elif participant.client_id == self.owner_client_id:
++            # The owner is back: take the role from any temporary (auto-promoted) host.
++            current = self.get_host()
++            if current and current is not participant:
++                current.role = Role.PARTICIPANT
++            self._make_host(participant)
++        elif self.get_host() is None:
++            # Owner is gone and nobody is hosting: act as host so the room stays usable.
++            self._make_host(participant)
++
++    def _make_host(self, participant: Participant):
++        participant.role = Role.HOST
++        self.host_socket_id = participant.socket_id
++
+     def remove_participant(self, socket_id: str) -> Optional[Participant]:
+         return self._participants.pop(socket_id, None)
+ 
+@@ -99,6 +150,9 @@ class Room:
+         current_host.role = Role.PARTICIPANT
+         new_host.role = Role.HOST
+         self.host_socket_id = new_host_socket_id
++        # A deliberate transfer changes who owns the room, so the old host
++        # does not take it back when they refresh.
++        self.owner_client_id = new_host.client_id
+ 
+         return current_host, new_host
+ 
+diff --git a/frontend/src/context/SocketContext.jsx b/frontend/src/context/SocketContext.jsx
+index 280f335..2aea335 100644
+--- a/frontend/src/context/SocketContext.jsx
++++ b/frontend/src/context/SocketContext.jsx
+@@ -1,5 +1,6 @@
+ import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+ import { io } from 'socket.io-client'
++import { getClientId } from '../utils/clientId'
+ 
+ const PROD_WS_URL = 'https://watchparty-youtube.onrender.com'
+ const WS_URL = import.meta.env.VITE_WS_URL || PROD_WS_URL
+@@ -97,8 +98,18 @@ export const SocketProvider = ({ children }) => {
+     }
+   }, [])
+ 
++  // Keep my own role in sync with the authoritative participants list.
++  useEffect(() => {
++    const id = socketRef.current?.id
++    if (!id) return
++    const self = participants.find((p) => p.socketId === id)
++    if (self) {
++      setMe((prev) => (prev && prev.role !== self.role ? { ...prev, role: self.role } : prev))
++    }
++  }, [participants])
++
+   const joinRoom = (roomId, username) => {
+-    socketRef.current?.emit('join_room', { roomId, username })
++    socketRef.current?.emit('join_room', { roomId, username, clientId: getClientId() })
+   }
+ 
+   const leaveRoom = () => {
+diff --git a/frontend/src/pages/RoomPage.jsx b/frontend/src/pages/RoomPage.jsx
+index 62451f1..57efaad 100644
+--- a/frontend/src/pages/RoomPage.jsx
++++ b/frontend/src/pages/RoomPage.jsx
+@@ -51,6 +51,12 @@ const RoomPage = () => {
+     }
+   }, [connected, roomId, joined, joinRoom, username])
+ 
++  // If the socket drops and reconnects it gets a new id and is no longer in the room
++  // on the server, so join again (the clientId lets the server restore our role).
++  useEffect(() => {
++    if (!connected) setJoined(false)
++  }, [connected])
++
+   useEffect(() => {
+     if (!room || !me) return
+ 
+diff --git a/frontend/src/utils/clientId.js b/frontend/src/utils/clientId.js
+new file mode 100644
+index 0000000..67e3164
+--- /dev/null
++++ b/frontend/src/utils/clientId.js
+@@ -0,0 +1,28 @@
++const STORAGE_KEY = 'watchparty:clientId'
++
++let memoryId = null
++
++const generateId = () => {
++  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
++    return crypto.randomUUID()
++  }
++  return 'c-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
++}
++
++// Stable per-tab identity. The socket id changes on every refresh, so the server
++// uses this id to recognise a returning user and restore their role (e.g. host).
++// sessionStorage survives refreshes but is not shared between tabs, so two tabs of
++// the same browser still count as two different people.
++export const getClientId = () => {
++  try {
++    let id = sessionStorage.getItem(STORAGE_KEY)
++    if (!id) {
++      id = generateId()
++      sessionStorage.setItem(STORAGE_KEY, id)
++    }
++    return id
++  } catch {
++    if (!memoryId) memoryId = generateId()
++    return memoryId
++  }
++}

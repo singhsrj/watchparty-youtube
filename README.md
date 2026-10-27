@@ -29,7 +29,7 @@
 | Frontend | React + Vite + Tailwind CSS |
 | Backend | Python + FastAPI |
 | WebSockets | python-socketio (Socket.IO) |
-| Database | PostgreSQL (Render) / SQLite (local dev) |
+| Database | PostgreSQL on Neon / SQLite (local dev) |
 | Video | YouTube IFrame API |
 | Deploy | Render (backend) + Netlify (frontend) |
 
@@ -83,7 +83,7 @@ MessageHandler          — registers all Socket.IO events, orchestrates logic
 
 - Python 3.11.9
 - Node.js 22.13.1
-- PostgreSQL (or SQLite for dev — auto-used if no `DATABASE_URL` set)
+- PostgreSQL (Neon) or SQLite for dev — SQLite is used automatically if no `DATABASE_URL` is set
 
 ### Backend
 
@@ -125,11 +125,28 @@ npm run dev
 3. Connect repo, set **Root Directory** to `backend`
 4. **Build command:** `pip install -r requirements.txt`
 5. **Start command:** `uvicorn main:socket_app --host 0.0.0.0 --port $PORT`
-6. Add a **PostgreSQL** database from Render dashboard
+6. Create a database on [Neon](https://neon.tech)
 7. Set env vars:
-   - `DATABASE_URL` → from Render Postgres (Internal URL)
+   - `DATABASE_URL` → Neon **direct** connection string (used for schema creation / migrations)
+   - `DATABASE_URL_POOLED` → Neon **pooled** connection string (host contains `-pooler`; used by the running app)
    - `FRONTEND_URL` → your Netlify URL
    - `SECRET_KEY` → any random string
+
+Tables are created automatically on startup.
+
+#### Migrating existing data to Neon
+
+With `DATABASE_URL` in `backend/.env` pointing at Neon (direct URL):
+
+```bash
+cd backend
+python scripts/migrate_to_neon.py --source "<old database url>" --dry-run   # preview
+python scripts/migrate_to_neon.py --source "<old database url>"             # copy
+```
+
+Rooms (with their saved video and position) are copied; live participant rows are not,
+because they are tied to socket ids and are rebuilt when people rejoin. The script is
+safe to re-run.
 
 ### Frontend → Netlify
 

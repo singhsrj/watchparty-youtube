@@ -21,7 +21,7 @@ class Room(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     code = Column(String(8), unique=True, nullable=False, default=generate_room_code)
     name = Column(String(100), nullable=False)
-    host_id = Column(String, nullable=True)  # socket id of current host
+    host_id = Column(String, nullable=True)  # client id (stable across refreshes) of the room owner/host
     current_video_id = Column(String, nullable=True)
     current_time = Column(Float, default=0.0)
     is_playing = Column(Boolean, default=False)

@@ -51,6 +51,12 @@ const RoomPage = () => {
     }
   }, [connected, roomId, joined, joinRoom, username])
 
+  // If the socket drops and reconnects it gets a new id and is no longer in the room
+  // on the server, so join again (the clientId lets the server restore our role).
+  useEffect(() => {
+    if (!connected) setJoined(false)
+  }, [connected])
+
   useEffect(() => {
     if (!room || !me) return
 

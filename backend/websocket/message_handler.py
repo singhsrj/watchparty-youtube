@@ -1,3 +1,4 @@
+import asyncio
 import socketio
 import logging
 from typing import Dict, Optional
@@ -46,6 +47,11 @@ class RoomRegistry:
         self._rooms.pop(room_id, None)
 
 
+# How long a disconnected host/moderator keeps their seat, so a page refresh
+# or brief network drop does not cost them their role.
+DISCONNECT_GRACE_SECONDS = 15
+
+
 class MessageHandler:
     """
     OOP WebSocket message handler.
@@ -55,6 +61,8 @@ class MessageHandler:
     def __init__(self, sio: socketio.AsyncServer):
         self.sio = sio
         self.registry = RoomRegistry()
+        # (room_id, client_id) -> task that removes a host/moderator after the grace period.
+        self._pending_removals: Dict[tuple, asyncio.Task] = {}
         self._register_events()
 
     def _register_events(self):
@@ -78,6 +86,8 @@ class MessageHandler:
     async def handle_join_room(self, sid: str, data: dict):
         room_id = data.get("roomId")
         username = data.get("username", "Anonymous")
+        # Stable identity that survives refreshes; fall back to the socket id for old clients.
+        client_id = data.get("clientId") or sid
 
         if not room_id:
             await self._emit_error(sid, "roomId is required")
@@ -96,33 +106,45 @@ class MessageHandler:
 
             # Get or create in-memory room
             room = self.registry.get_room_by_id(room_id)
-            is_first_join = room is None
-
-            if is_first_join:
-                # Restore from DB — first joiner becomes host
+            if room is None:
+                # Restore from DB. host_id stores the owner's client id.
                 room = Room(
                     room_id=room_model.id,
                     room_code=room_model.code,
                     name=room_model.name,
-                    host_socket_id=sid,
-                    host_username=username,
+                    owner_client_id=room_model.host_id,
                 )
-                # Restore video state
                 room.video_state.video_id = room_model.current_video_id or ""
                 room.video_state.current_time = room_model.current_time or 0.0
                 room.video_state.is_playing = False  # Always start paused on restore
                 self.registry.register(room)
-                already_joined = False
-            else:
-                already_joined = room.get_participant(sid) is not None
-                room.add_participant(sid, username)
+
+            already_joined = room.get_participant(sid) is not None
+            previous = None if already_joined else room.find_by_client_id(client_id)
+            old_sid = previous.socket_id if previous else None
+
+            participant = room.add_participant(sid, username, client_id)
+
+            if old_sid:
+                # Same person on a new socket (refresh/reconnect): the old socket is stale.
+                self._cancel_pending_removal(room_id, client_id)
+                self.registry.unmap_socket(old_sid)
+                try:
+                    await self.sio.leave_room(old_sid, room_id)
+                except Exception:
+                    pass
+                db.query(RoomParticipant).filter(
+                    RoomParticipant.socket_id == old_sid,
+                    RoomParticipant.room_id == room_id,
+                ).delete()
 
             self.registry.map_socket(sid, room_id)
             await self.sio.enter_room(sid, room_id)
 
-            participant = room.get_participant(sid)
+            # Persist owner + participant to DB
+            if room_model.host_id != room.owner_client_id:
+                room_model.host_id = room.owner_client_id
 
-            # Persist participant to DB
             db_participant = RoomParticipant(
                 room_id=room_id,
                 socket_id=sid,
@@ -139,7 +161,8 @@ class MessageHandler:
                 "you": participant.to_dict(),
             }, to=sid)
 
-            # Notify everyone else
+            # Notify everyone else (also refreshes their list when someone reconnects
+            # with a new socket id or a temporary host steps down)
             if not already_joined:
                 await self.sio.emit("user_joined", {
                     "username": username,
@@ -157,16 +180,45 @@ class MessageHandler:
             db.close()
 
     async def handle_leave_room(self, sid: str, data: dict = None):
-        await self._handle_disconnect_for_socket(sid)
+        # Explicit leave: remove immediately, no grace period.
+        await self._remove_socket(sid)
 
     async def handle_disconnect(self, sid: str):
-        await self._handle_disconnect_for_socket(sid)
-
-    async def _handle_disconnect_for_socket(self, sid: str):
         room = self.registry.get_room_by_socket(sid)
-        if not room:
+        participant = room.get_participant(sid) if room else None
+
+        if participant and participant.client_id and participant.role in (Role.HOST, Role.MODERATOR):
+            # Probably a refresh or network blip. Keep the seat for a short grace period;
+            # if the same client rejoins, join_room hands the role back.
+            self.registry.unmap_socket(sid)
+            key = (room.room_id, participant.client_id)
+            self._cancel_pending_removal(*key)
+            self._pending_removals[key] = asyncio.create_task(
+                self._remove_after_grace(room, sid, key)
+            )
             return
 
+        await self._remove_socket(sid)
+
+    def _cancel_pending_removal(self, room_id: str, client_id: str):
+        task = self._pending_removals.pop((room_id, client_id), None)
+        if task:
+            task.cancel()
+
+    async def _remove_after_grace(self, room: Room, sid: str, key: tuple):
+        try:
+            await asyncio.sleep(DISCONNECT_GRACE_SECONDS)
+        except asyncio.CancelledError:
+            return
+        self._pending_removals.pop(key, None)
+        await self._remove_participant(room, sid)
+
+    async def _remove_socket(self, sid: str):
+        room = self.registry.get_room_by_socket(sid)
+        if room:
+            await self._remove_participant(room, sid)
+
+    async def _remove_participant(self, room: Room, sid: str):
         participant = room.get_participant(sid)
         if not participant:
             return
@@ -322,6 +374,7 @@ class MessageHandler:
         try:
             new_host_id = data.get("userId")
             old_host, new_host = room.transfer_host(sid, new_host_id)
+            self._persist_owner(room)
 
             await self.sio.emit("host_transferred", {
                 "oldHostId": sid,
@@ -400,6 +453,20 @@ class MessageHandler:
 
     async def _emit_error(self, sid: str, message: str):
         await self.sio.emit("error", {"message": message}, to=sid)
+
+    def _persist_owner(self, room: Room):
+        """Persist the room owner's client id (stored in rooms.host_id)."""
+        db = SessionLocal()
+        try:
+            db.query(RoomModel).filter(RoomModel.id == room.room_id).update({
+                "host_id": room.owner_client_id,
+            })
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to persist room owner: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
     def _persist_room_state(self, room: Room):
         """Persist current video state to DB."""
