@@ -1,0 +1,4 @@
+# Caddy gets and renews the HTTPS certificate automatically and proxies WebSockets as-is.
+{$DOMAIN} {
+	reverse_proxy backend:8000
+}

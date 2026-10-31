@@ -1,0 +1,3 @@
+-r requirements.txt
+# test client dependencies (CI only, not in the production image)
+aiohttp>=3.9,<4
