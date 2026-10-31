@@ -1,0 +1,14 @@
+# Never bake secrets or local state into the image (the app would read .env from /app)
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+*.db
+*.sqlite3
+.git/
+deploy/
+scripts/
+regression_*.py
+integration_*.py

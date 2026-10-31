@@ -1,0 +1,40 @@
+# Runs on the EC2 instance in /opt/watchparty.
+# BACKEND_IMAGE comes from image.env (written by deploy.sh); the rest from .env.
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE is not set}
+    restart: unless-stopped
+    env_file: .env
+    expose:
+      - "8000"          # reachable only by Caddy, not published on the host
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is not set in .env}
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - caddy_data:/data      # keeps the Let's Encrypt certificate across restarts
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  caddy_data:
+  caddy_config:
